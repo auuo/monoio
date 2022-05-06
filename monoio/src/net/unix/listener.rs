@@ -1,18 +1,15 @@
+use super::{socket_addr::SocketAddr, UnixStream};
+use crate::{
+    driver::{op::Op, shared_fd::SharedFd},
+    net::ListenerConfig,
+    stream::Stream,
+};
+use futures::Future;
 use std::{
     io,
     os::unix::prelude::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
     path::Path,
 };
-
-use futures::Future;
-
-use crate::{
-    driver::{Op, SharedFd},
-    net::ListenerConfig,
-    stream::Stream,
-};
-
-use super::{socket_addr::SocketAddr, UnixStream};
 
 /// UnixListener
 pub struct UnixListener {
@@ -66,7 +63,7 @@ impl UnixListener {
 
     /// Accept
     pub async fn accept(&self) -> io::Result<(UnixStream, SocketAddr)> {
-        let op = Op::accept_unix(&self.fd)?;
+        let op = Op::accept(&self.fd)?;
 
         // Await the completion of the event
         let completion = op.await;
@@ -78,7 +75,9 @@ impl UnixListener {
         let stream = UnixStream::from_shared_fd(SharedFd::new(fd as _));
 
         // Construct SocketAddr
-        let raw_addr_un = unsafe { std::mem::MaybeUninit::assume_init(completion.data.addr) };
+        let mut storage = unsafe { std::mem::MaybeUninit::assume_init(completion.data.addr) };
+        let storage: *mut libc::sockaddr_storage = &mut storage as *mut _;
+        let raw_addr_un: libc::sockaddr_un = unsafe { *storage.cast() };
         let raw_addr_len = completion.data.addrlen;
 
         let addr = SocketAddr::from_parts(raw_addr_un, raw_addr_len);
